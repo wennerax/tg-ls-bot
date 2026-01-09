@@ -62,14 +62,14 @@ bot.on('message', (msg) => {
     delete replyStates[userId];
 
     // Send reply to the user
-    bot.sendMessage(targetUserId, `📧 <b>Reply from bot owner:</b>\n\n${messageText}`, { parse_mode: 'HTML' })
+    bot.sendMessage(targetUserId, `📧 <b>Ответ от владельца:</b>\n\n${messageText}`, { parse_mode: 'HTML' })
       .then(() => {
-        bot.sendMessage(chatId, `✅ Reply sent to user ${targetUserId}`);
+        bot.sendMessage(chatId, `✅ Ответ отправлен пользователю ${targetUserId}`);
         console.log(`Owner sent reply to user ${targetUserId}: ${messageText}`);
       })
       .catch((error) => {
-        console.error('Error sending reply to user:', error);
-        bot.sendMessage(chatId, `❌ Failed to send reply to user ${targetUserId}`);
+        console.error('Ошибка при отправке ответа пользователю:', error);
+        bot.sendMessage(chatId, `❌ Не удалось отправить ответ пользователю ${targetUserId}`);
         replyStates[userId] = targetUserId; // Restore state
       });
     return;
@@ -77,7 +77,7 @@ bot.on('message', (msg) => {
 
   // Check if user is banned
   if (bannedUsers[userId]) {
-    bot.sendMessage(chatId, '🚫 You have been banned from using this bot.');
+    bot.sendMessage(chatId, '🚫 Вам забанили использование этого бота.');
     console.log(`Blocked message from banned user ${userName} (ID: ${userId})`);
     return;
   }
@@ -85,13 +85,13 @@ bot.on('message', (msg) => {
   console.log(`Message from ${userName} (ID: ${userId}): ${messageText}`);
 
   // Forward message to bot owner with reply button
-  const forwardedText = `📨 <b>New message from ${userName}</b>\n<code>ID: ${userId}</code>\n\n${messageText}`;
+  const forwardedText = `📨 <b>Новое сообщение от ${userName}</b>\n<code>ID: ${userId}</code>\n\n${messageText}`;
 
   const replyMarkup = {
     inline_keyboard: [
       [
         {
-          text: '💬 Reply',
+          text: '💬 Ответ',
           callback_data: `reply_${userId}`
         }
       ]
@@ -104,11 +104,11 @@ bot.on('message', (msg) => {
   })
     .then(() => {
       // Send confirmation to user
-      bot.sendMessage(chatId, '✅ Your message has been sent to the bot owner!');
+      bot.sendMessage(chatId, '✅ Ваше сообщение отправлено!');
     })
     .catch((error) => {
       console.error('Error forwarding message:', error);
-      bot.sendMessage(chatId, '❌ Failed to send your message. Please try again later.');
+      bot.sendMessage(chatId, '❌ Не смог отправить сообщение. Пожалуйста, попробуйте позже.');
     });
 });
 
@@ -120,7 +120,7 @@ bot.on('callback_query', (query) => {
 
   // Check if user is owner
   if (userId.toString() !== ownerID.toString()) {
-    bot.answerCallbackQuery(query.id, '❌ You do not have permission to use this.', true);
+    bot.answerCallbackQuery(query.id, '❌ У тебя нет разрешения использовать это.', true);
     return;
   }
 
@@ -128,9 +128,9 @@ bot.on('callback_query', (query) => {
     const targetUserId = callbackData.replace('reply_', '');
     replyStates[userId] = targetUserId;
 
-    bot.answerCallbackQuery(query.id, '✅ Please send your reply message now', false);
-    bot.sendMessage(chatId, `📝 Please type your reply to user ${targetUserId}. Send /cancel to cancel.`);
-    console.log(`Owner started replying to user ${targetUserId}`);
+    bot.answerCallbackQuery(query.id, '✅ Пожалуйста, отправьте ответ прямо сейчас', false);
+    bot.sendMessage(chatId, `📝 Пожалуйста, напишите свой ответ пользователю ${targetUserId}. Отправить /cancel для отмены.`);
+    console.log(`Владелец начал отвечать пользователю ${targetUserId}`);
   }
 });
 
@@ -141,16 +141,16 @@ bot.onText(/\/cancel/, (msg) => {
 
   // Check if user is owner
   if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ You do not have permission to use this command.');
+    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду.');
     return;
   }
 
   if (replyStates[userId]) {
     delete replyStates[userId];
-    bot.sendMessage(chatId, '❌ Reply cancelled.');
-    console.log(`Owner cancelled reply`);
+    bot.sendMessage(chatId, '❌ Ответ отменён.');
+    console.log(`Владелец отменил ответ`);
   } else {
-    bot.sendMessage(chatId, 'ℹ️ No active reply.');
+    bot.sendMessage(chatId, 'ℹ️ Активного ответа нет.');
   }
 });
 
@@ -162,13 +162,13 @@ bot.onText(/\/ban (\d+)/, (msg, match) => {
 
   // Check if user is owner
   if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ You do not have permission to use this command.');
+    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду
     return;
   }
 
   // Check if user is already banned
   if (bannedUsers[targetUserId]) {
-    bot.sendMessage(chatId, `ℹ️ User ${targetUserId} is already banned.`);
+    bot.sendMessage(chatId, `ℹ️ Пользователю ${targetUserId} уже запрещено.`);
     return;
   }
 
@@ -181,8 +181,8 @@ bot.onText(/\/ban (\d+)/, (msg, match) => {
 
   saveBannedUsers(bannedUsers);
 
-  bot.sendMessage(chatId, `✅ User ${targetUserId} has been banned.`);
-  console.log(`User ${targetUserId} has been banned by owner`);
+  bot.sendMessage(chatId, `✅ Пользователю ${targetUserId} успешно запрещено писать.`);
+  console.log(`Пользователь ${targetUserId} был забанен владельцем`);
 });
 
 // Handle /unban command (owner only)
@@ -193,13 +193,13 @@ bot.onText(/\/unban (\d+)/, (msg, match) => {
 
   // Check if user is owner
   if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ You do not have permission to use this command.');
+    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду.');
     return;
   }
 
   // Check if user is banned
   if (!bannedUsers[targetUserId]) {
-    bot.sendMessage(chatId, `ℹ️ User ${targetUserId} is not banned.`);
+    bot.sendMessage(chatId, `ℹ️ Пользователь ${targetUserId} не забанен.`);
     return;
   }
 
@@ -207,8 +207,8 @@ bot.onText(/\/unban (\d+)/, (msg, match) => {
   delete bannedUsers[targetUserId];
   saveBannedUsers(bannedUsers);
 
-  bot.sendMessage(chatId, `✅ User ${targetUserId} has been unbanned.`);
-  console.log(`User ${targetUserId} has been unbanned by owner`);
+  bot.sendMessage(chatId, `✅ Пользователь ${targetUserId} был разблокирован.`);
+  console.log(`Пользователь ${targetUserId} был снят с блокировки владельцем`);
 });
 
 // Handle /banned_list command (owner only)
@@ -218,18 +218,18 @@ bot.onText(/\/banned_list/, (msg) => {
 
   // Check if user is owner
   if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ You do not have permission to use this command.');
+    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду.');
     return;
   }
 
   if (Object.keys(bannedUsers).length === 0) {
-    bot.sendMessage(chatId, '📋 No banned users.');
+    bot.sendMessage(chatId, '📋 Забаненных пользователей нет.');
     return;
   }
 
-  let listText = '📋 <b>Banned Users:</b>\n\n';
+  let listText = '📋 <b>Заблокированные пользователи:</b>\n\n';
   for (const [userId, userInfo] of Object.entries(bannedUsers)) {
-    listText += `<code>${userId}</code> - @${userInfo.username} (Banned: ${new Date(userInfo.bannedAt).toLocaleString()})\n`;
+    listText += `<code>${userId}</code> - @${userInfo.username} (Забаненые: ${new Date(userInfo.bannedAt).toLocaleString()})\n`;
   }
 
   bot.sendMessage(chatId, listText, { parse_mode: 'HTML' });
@@ -241,8 +241,8 @@ bot.onText(/\/help/, (msg) => {
   const userId = msg.from.id;
   const isOwner = userId.toString() === ownerID.toString();
 
-  let helpText = '🤖 <b>Bot Commands:</b>\n\n';
-  helpText += 'Send any message and it will be forwarded to the bot owner.\n';
+  let helpText = '🤖 <bКоманды бота:</b>\n\n';
+  helpText += 'Отправьте любое сообщение, и оно будет переадресовано владельцу бота.\n';
 
   if (isOwner) {
     helpText += '\n<b>Owner Commands:</b>\n';
