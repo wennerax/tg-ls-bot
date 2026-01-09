@@ -3,124 +3,193 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-// Get bot token and owner ID from environment variables
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const ownerID = process.env.OWNER_ID;
+// Конфигурация
+const config = {
+  token: process.env.TELEGRAM_BOT_TOKEN,
+  ownerID: process.env.OWNER_ID,
+  bannedUsersFile: path.join(__dirname, 'banned_users.json'),
+  spamThreshold: 5,
+  spamTimeWindow: 10,
+  maxMessageLength: 1000
+};
 
-if (!token || !ownerID) {
-  console.error('Error: TELEGRAM_BOT_TOKEN and OWNER_ID environment variables are required');
+// Проверка конфигурации
+if (!config.token || !config.ownerID) {
+  console.error('Ошибка: Требуются переменные окружения TELEGRAM_BOT_TOKEN и OWNER_ID');
   process.exit(1);
 }
 
-// Banned users database file
-const bannedUsersFile = path.join(__dirname, 'banned_users.json');
-
-// Load banned users from file
+// Загрузка заблокированных пользователей из файла
 function loadBannedUsers() {
   try {
-    if (fs.existsSync(bannedUsersFile)) {
-      const data = fs.readFileSync(bannedUsersFile, 'utf-8');
+    if (fs.existsSync(config.bannedUsersFile)) {
+      const data = fs.readFileSync(config.bannedUsersFile, 'utf-8');
       return JSON.parse(data);
     }
   } catch (error) {
-    console.error('Error loading banned users:', error);
+    console.error('Ошибка при загрузке заблокированных пользователей:', error);
   }
   return {};
 }
 
-// Save banned users to file
+// Сохранение заблокированных пользователей в файл
 function saveBannedUsers(bannedUsers) {
   try {
-    fs.writeFileSync(bannedUsersFile, JSON.stringify(bannedUsers, null, 2), 'utf-8');
+    fs.writeFileSync(config.bannedUsersFile, JSON.stringify(bannedUsers, null, 2), 'utf-8');
   } catch (error) {
-    console.error('Error saving banned users:', error);
+    console.error('Ошибка при сохранении заблокированных пользователей:', error);
   }
 }
 
-// Load banned users at startup
+// Загрузка заблокированных пользователей при запуске
 let bannedUsers = loadBannedUsers();
 
-// Track reply states - which user is the owner currently replying to
+// Отслеживание состояний ответов — кому сейчас отвечает владелец
 const replyStates = {};
 
-// Create bot instance with polling
-const bot = new TelegramBot(token, { polling: true });
+// История сообщений пользователей для обнаружения спама
+const userMessageHistory = {};
+const SPAM_THRESHOLD = config.spamThreshold;
+const SPAM_TIME_WINDOW = config.spamTimeWindow;
+const MAX_MESSAGE_LENGTH = config.maxMessageLength;
 
-console.log('Bot is running...');
-console.log(`Banned users loaded: ${Object.keys(bannedUsers).length}`);
+// Создание экземпляра бота с опросом
+const bot = new TelegramBot(config.token, { polling: true });
 
-// Handle incoming messages
+console.log('Бот запущен...');
+console.log(`Заблокированные пользователи: ${Object.keys(bannedUsers).length}`);
+
+// Вспомогательная функция для проверки спама
+function isSpam(userId) {
+  const now = Date.now();
+  if (!userMessageHistory[userId]) {
+    userMessageHistory[userId] = [];
+  }
+
+  // Удаление старых сообщений за пределами временного окна
+  userMessageHistory[userId] = userMessageHistory[userId].filter(
+    (timestamp) => now - timestamp < SPAM_TIME_WINDOW * 1000
+  );
+
+  // Добавление текущего сообщения
+  userMessageHistory[userId].push(now);
+
+  // Проверка превышения порога спама
+  return userMessageHistory[userId].length > SPAM_THRESHOLD;
+}
+
+// Обработка команды /start
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  const startMessage = `
+╔════════════════════════════════════════╗
+║  ⚠️  ВАЖНОЕ УВЕДОМЛЕНИЕ  ⚠️             ║
+╠════════════════════════════════════════╣
+║                                        ║
+║  Это личный аккаунт.                   ║
+║  Пожалуйста, не спамьте! 🚫            ║
+║                                        ║
+║  Избыточные сообщения приведут к        ║
+║  автоматической блокировке бота.       ║
+║                                        ║
+║  Соблюдайте правила, пользуйтесь ботом! 💬 ║
+║                                        ║
+╚════════════════════════════════════════╝
+  `;
+  bot.sendMessage(chatId, startMessage);
+});
+
+// Обработка входящих сообщений
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-  const userName = msg.from.username || msg.from.first_name || 'Unknown';
+  const userName = msg.from.username || msg.from.first_name || 'Неизвестно';
   const messageText = msg.text || '';
 
-  // Check if this is a reply from the owner
-  if (userId.toString() === ownerID.toString() && replyStates[userId]) {
+  // Проверка, является ли это ответом владельца
+  if (userId.toString() === config.ownerID.toString() && replyStates[userId]) {
     const targetUserId = replyStates[userId];
     delete replyStates[userId];
 
-    // Send reply to the user
-    bot.sendMessage(targetUserId, `📧 <b>Ответ от владельца:</b>\n\n${messageText}`, { parse_mode: 'HTML' })
+    // Отправка ответа пользователю
+    bot.sendMessage(targetUserId, `📧 <b>Ответ от владельца бота:</b>\n\n${messageText}`, { parse_mode: 'HTML' })
       .then(() => {
         bot.sendMessage(chatId, `✅ Ответ отправлен пользователю ${targetUserId}`);
-        console.log(`Owner sent reply to user ${targetUserId}: ${messageText}`);
+        console.log(`Владелец отправил ответ пользователю ${targetUserId}: ${messageText}`);
       })
       .catch((error) => {
         console.error('Ошибка при отправке ответа пользователю:', error);
         bot.sendMessage(chatId, `❌ Не удалось отправить ответ пользователю ${targetUserId}`);
-        replyStates[userId] = targetUserId; // Restore state
+        replyStates[userId] = targetUserId; // Восстановить состояние
       });
     return;
   }
 
-  // Check if user is banned
+  // Проверка, заблокирован ли пользователь
   if (bannedUsers[userId]) {
-    bot.sendMessage(chatId, '🚫 Вам забанили использование этого бота.');
-    console.log(`Blocked message from banned user ${userName} (ID: ${userId})`);
+    bot.sendMessage(chatId, '🚫 Вы заблокированы и не можете использовать этого бота.');
+    console.log(`Сообщение от заблокированного пользователя ${userName} (ID: ${userId})`);
     return;
   }
 
-  console.log(`Message from ${userName} (ID: ${userId}): ${messageText}`);
+  // Проверка на спам
+  if (isSpam(userId)) {
+    // Автоматическая блокировка спамера
+    bannedUsers[userId] = {
+      userId: userId,
+      username: userName,
+      bannedAt: new Date().toISOString(),
+      reason: 'Автоматическая блокировка за спам'
+    };
+    saveBannedUsers(bannedUsers);
+    
+    bot.sendMessage(chatId, '🚫 <b>Вы автоматически заблокированы за спам!</b>\n\nЕсли вы считаете, что это ошибка, свяжитесь с владельцем бота.', { parse_mode: 'HTML' });
+    bot.sendMessage(config.ownerID, `🚨 <b>Обнаружен спам:</b>\n\nПользователь <code>${userName}</code> (ID: <code>${userId}</code>) автоматически заблокирован за отправку ${SPAM_THRESHOLD + 1} сообщений за ${SPAM_TIME_WINDOW} секунд.`, { parse_mode: 'HTML' });
+    
+    console.log(`Пользователь ${userName} (ID: ${userId}) автоматически заблокирован за спам`);
+    delete userMessageHistory[userId];
+    return;
+  }
 
-  // Forward message to bot owner with reply button
+  console.log(`Сообщение от ${userName} (ID: ${userId}): ${messageText}`);
+
+  // Пересылка сообщения владельцу бота с кнопкой ответа
   const forwardedText = `📨 <b>Новое сообщение от ${userName}</b>\n<code>ID: ${userId}</code>\n\n${messageText}`;
 
   const replyMarkup = {
     inline_keyboard: [
       [
         {
-          text: '💬 Ответ',
+          text: '💬 Ответить',
           callback_data: `reply_${userId}`
         }
       ]
     ]
   };
 
-  bot.sendMessage(ownerID, forwardedText, { 
+  bot.sendMessage(config.ownerID, forwardedText, { 
     parse_mode: 'HTML',
     reply_markup: replyMarkup
   })
     .then(() => {
-      // Send confirmation to user
-      bot.sendMessage(chatId, '✅ Ваше сообщение отправлено!');
+      // Подтверждение пользователю
+      bot.sendMessage(chatId, '✅ Ваше сообщение отправлено владельцу бота!');
     })
     .catch((error) => {
-      console.error('Error forwarding message:', error);
-      bot.sendMessage(chatId, '❌ Не смог отправить сообщение. Пожалуйста, попробуйте позже.');
+      console.error('Ошибка при пересылке сообщения:', error);
+      bot.sendMessage(chatId, '❌ Не удалось отправить ваше сообщение. Попробуйте позже.');
     });
 });
 
-// Handle callback queries (reply button clicks)
+// Обработка кнопок (нажатий на кнопку "Ответить")
 bot.on('callback_query', (query) => {
   const chatId = query.message.chat.id;
   const userId = query.from.id;
   const callbackData = query.data;
 
-  // Check if user is owner
-  if (userId.toString() !== ownerID.toString()) {
-    bot.answerCallbackQuery(query.id, '❌ У тебя нет разрешения использовать это.', true);
+  // Проверка, является ли пользователь владельцем
+  if (userId.toString() !== config.ownerID.toString()) {
+    bot.answerCallbackQuery(query.id, '❌ У вас нет прав для этого.', true);
     return;
   }
 
@@ -128,141 +197,141 @@ bot.on('callback_query', (query) => {
     const targetUserId = callbackData.replace('reply_', '');
     replyStates[userId] = targetUserId;
 
-    bot.answerCallbackQuery(query.id, '✅ Пожалуйста, отправьте ответ прямо сейчас', false);
-    bot.sendMessage(chatId, `📝 Пожалуйста, напишите свой ответ пользователю ${targetUserId}. Отправить /cancel для отмены.`);
+    bot.answerCallbackQuery(query.id, '✅ Теперь напишите ваш ответ', false);
+    bot.sendMessage(chatId, `📝 Введите ваш ответ пользователю ${targetUserId}. Отправьте /cancel для отмены.`);
     console.log(`Владелец начал отвечать пользователю ${targetUserId}`);
   }
 });
 
-// Handle /cancel command to cancel reply
+// Обработка команды /cancel для отмены ответа
 bot.onText(/\/cancel/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  // Check if user is owner
-  if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду.');
+  // Проверка, является ли пользователь владельцем
+  if (userId.toString() !== config.ownerID.toString()) {
+    bot.sendMessage(chatId, '❌ У вас нет прав для этого.');
     return;
   }
 
   if (replyStates[userId]) {
     delete replyStates[userId];
-    bot.sendMessage(chatId, '❌ Ответ отменён.');
+    bot.sendMessage(chatId, '❌ Ответ отменен.');
     console.log(`Владелец отменил ответ`);
   } else {
-    bot.sendMessage(chatId, 'ℹ️ Активного ответа нет.');
+    bot.sendMessage(chatId, 'ℹ️ Нет активного ответа.');
   }
 });
 
-// Handle /ban command (owner only)
+// Обработка команды /ban (только для владельца)
 bot.onText(/\/ban (\d+)/, (msg, match) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const targetUserId = match[1];
 
-  // Check if user is owner
-  if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду
+  // Проверка, является ли пользователь владельцем
+  if (userId.toString() !== config.ownerID.toString()) {
+    bot.sendMessage(chatId, '❌ У вас нет прав для этого.');
     return;
   }
 
-  // Check if user is already banned
+  // Проверка, уже заблокирован ли пользователь
   if (bannedUsers[targetUserId]) {
-    bot.sendMessage(chatId, `ℹ️ Пользователю ${targetUserId} уже запрещено.`);
+    bot.sendMessage(chatId, `ℹ️ Пользователь ${targetUserId} уже заблокирован.`);
     return;
   }
 
-  // Ban the user
+  // Блокировка пользователя
   bannedUsers[targetUserId] = {
     userId: targetUserId,
-    username: msg.text.split(' ')[2] || 'Unknown',
+    username: msg.text.split(' ')[2] || 'Неизвестно',
     bannedAt: new Date().toISOString()
   };
 
   saveBannedUsers(bannedUsers);
 
-  bot.sendMessage(chatId, `✅ Пользователю ${targetUserId} успешно запрещено писать.`);
-  console.log(`Пользователь ${targetUserId} был забанен владельцем`);
+  bot.sendMessage(chatId, `✅ Пользователь ${targetUserId} заблокирован.`);
+  console.log(`Пользователь ${targetUserId} заблокирован владельцем`);
 });
 
-// Handle /unban command (owner only)
+// Обработка команды /unban (разблокировка)
 bot.onText(/\/unban (\d+)/, (msg, match) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const targetUserId = match[1];
 
-  // Check if user is owner
-  if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду.');
+  // Проверка, является ли пользователь владельцем
+  if (userId.toString() !== config.ownerID.toString()) {
+    bot.sendMessage(chatId, '❌ У вас нет прав для этого.');
     return;
   }
 
-  // Check if user is banned
+  // Проверка, заблокирован ли пользователь
   if (!bannedUsers[targetUserId]) {
-    bot.sendMessage(chatId, `ℹ️ Пользователь ${targetUserId} не забанен.`);
+    bot.sendMessage(chatId, `ℹ️ Пользователь ${targetUserId} не заблокирован.`);
     return;
   }
 
-  // Unban the user
+  // Разблокировка пользователя
   delete bannedUsers[targetUserId];
   saveBannedUsers(bannedUsers);
 
-  bot.sendMessage(chatId, `✅ Пользователь ${targetUserId} был разблокирован.`);
-  console.log(`Пользователь ${targetUserId} был снят с блокировки владельцем`);
+  bot.sendMessage(chatId, `✅ Пользователь ${targetUserId} разблокирован.`);
+  console.log(`Пользователь ${targetUserId} разблокирован владельцем`);
 });
 
-// Handle /banned_list command (owner only)
+// Обработка команды /banned_list
 bot.onText(/\/banned_list/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  // Check if user is owner
-  if (userId.toString() !== ownerID.toString()) {
-    bot.sendMessage(chatId, '❌ У вас нет разрешения использовать эту команду.');
+  // Проверка, является ли пользователь владельцем
+  if (userId.toString() !== config.ownerID.toString()) {
+    bot.sendMessage(chatId, '❌ У вас нет прав для этого.');
     return;
   }
 
   if (Object.keys(bannedUsers).length === 0) {
-    bot.sendMessage(chatId, '📋 Забаненных пользователей нет.');
+    bot.sendMessage(chatId, '📋 Заблокированных пользователей нет.');
     return;
   }
 
   let listText = '📋 <b>Заблокированные пользователи:</b>\n\n';
   for (const [userId, userInfo] of Object.entries(bannedUsers)) {
-    listText += `<code>${userId}</code> - @${userInfo.username} (Забаненые: ${new Date(userInfo.bannedAt).toLocaleString()})\n`;
+    listText += `<code>${userId}</code> - @${userInfo.username} (Заблокирован: ${new Date(userInfo.bannedAt).toLocaleString()})\n`;
   }
 
   bot.sendMessage(chatId, listText, { parse_mode: 'HTML' });
 });
 
-// Handle /help command
+// Обработка команды /help
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-  const isOwner = userId.toString() === ownerID.toString();
+  const isOwner = userId.toString() === config.ownerID.toString();
 
-  let helpText = '🤖 <bКоманды бота:</b>\n\n';
-  helpText += 'Отправьте любое сообщение, и оно будет переадресовано владельцу бота.\n';
+  let helpText = '🤖 <b>Команды бота:</b>\n\n';
+  helpText += 'Отправьте любое сообщение, и оно будет переслано владельцу бота.\n';
 
   if (isOwner) {
-    helpText += '\n<b>Owner Commands:</b>\n';
-    helpText += '💬 Click "Reply" button on any message to reply to that user\n';
-    helpText += '/ban <user_id> - Ban a user\n';
-    helpText += '/unban <user_id> - Unban a user\n';
-    helpText += '/banned_list - Show all banned users\n';
-    helpText += '/cancel - Cancel current reply\n';
-    helpText += '/help - Show this message\n';
+    helpText += '\n<b>Команды владельца:</b>\n';
+    helpText += '💬 Нажмите кнопку "Ответить" к любому сообщению, чтобы ответить пользователю\n';
+    helpText += '/ban <user_id> - Заблокировать пользователя\n';
+    helpText += '/unban <user_id> - Разблокировать пользователя\n';
+    helpText += '/banned_list - Показать всех заблокированных пользователей\n';
+    helpText += '/cancel - Отменить текущий ответ\n';
+    helpText += '/help - Показать это сообщение\n';
   }
 
   bot.sendMessage(chatId, helpText, { parse_mode: 'HTML' });
 });
 
-// Handle errors
+// Обработка ошибок
 bot.on('polling_error', (error) => {
-  console.error('Polling error:', error);
+  console.error('Ошибка опроса:', error);
 });
 
 process.on('SIGINT', () => {
-  console.log('Bot stopped');
+  console.log('Бот остановлен');
   process.exit(0);
 });
