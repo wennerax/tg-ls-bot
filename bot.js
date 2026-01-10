@@ -316,7 +316,7 @@ bot.onText(/\/banned_list/, (msg) => {
 });
 
 // Обработка команды /help
-bot.onText(/\/help/, (msg) => {
+bot.onText(/^\/help(?:@[\w_]+)?(?:\s.*)?$/i, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const isOwner = userId.toString() === config.ownerID.toString();
