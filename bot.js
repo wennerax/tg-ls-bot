@@ -78,6 +78,20 @@ function isSpam(userId) {
   return userMessageHistory[userId].length > SPAM_THRESHOLD;
 }
 
+// Вспомогательная функция для определения, является ли сообщение командой
+function isCommandMessage(msg) {
+  try {
+    if (!msg || !msg.text) return false;
+    if (typeof msg.text === 'string' && msg.text.trim().startsWith('/')) return true;
+    if (Array.isArray(msg.entities)) {
+      return msg.entities.some((ent) => ent.type === 'bot_command');
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
 // Обработка команды /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
@@ -98,8 +112,12 @@ bot.on('message', (msg) => {
   const userId = msg.from.id;
   const userName = msg.from.username || msg.from.first_name || 'Неизвестно';
   const messageText = msg.text || '';
+  // Игнорировать команды — они обрабатываются отдельными обработчиками
+  if (isCommandMessage(msg)) {
+    return;
+  }
 
-  // Проверка, является ли это ответом владельца
+  // Проверка, является ли это ответом владельца (только для не-командных сообщений)
   if (userId.toString() === config.ownerID.toString() && replyStates[userId]) {
     const targetUserId = replyStates[userId];
     delete replyStates[userId];
