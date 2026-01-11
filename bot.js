@@ -2,6 +2,7 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
 
 // Конфигурация
 const config = {
@@ -316,7 +317,7 @@ bot.onText(/\/banned_list/, (msg) => {
 });
 
 // Обработка команды /help
-bot.onText(/\/help/, (msg) => {
+bot.onText(/^\/help(?:@[\w_]+)?(?:\s.*)?$/i, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const isOwner = userId.toString() === config.ownerID.toString();
@@ -342,7 +343,41 @@ bot.on('polling_error', (error) => {
   console.error('Ошибка опроса:', error);
 });
 
+// --- Периодическая проверка синтаксиса JS-файлов (раз в час) ---
+function checkAllJsFiles() {
+  const dir = __dirname;
+  fs.readdir(dir, (err, files) => {
+    if (err) {
+      console.error('Ошибка при чтении каталога для проверки кода:', err);
+      return;
+    }
+    const jsFiles = files.filter((f) => f.endsWith('.js'));
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] Начало проверки синтаксиса ${jsFiles.length} файлов...`);
+
+    jsFiles.forEach((file) => {
+      const filePath = path.join(dir, file);
+      const cmd = `${process.execPath} --check ${JSON.stringify(filePath)}`;
+      exec(cmd, (error, stdout, stderr) => {
+        const ts = new Date().toISOString();
+        if (error) {
+          console.error(`[${ts}] Синтаксическая ошибка в ${file}:`, stderr || error.message);
+        } else {
+          console.log(`[${ts}] OK: ${file}`);
+        }
+      });
+    });
+  });
+}
+
+// Запуск при старте и планирование каждую 1 час
+checkAllJsFiles();
+const ONE_HOUR = 60 * 60 * 1000;
+const checkInterval = setInterval(checkAllJsFiles, ONE_HOUR);
+
+// Очистка интервала и завершение при SIGINT
 process.on('SIGINT', () => {
-  console.log('Бот остановлен');
+  clearInterval(checkInterval);
+  console.log('Выключение: остановлена периодическая проверка синтаксиса.');
   process.exit(0);
 });
